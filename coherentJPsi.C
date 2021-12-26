@@ -131,7 +131,7 @@ int main(int argc, char *argv[])
 
   double weight = 0.0;
   
-  JPSIMODEL::SetModel("23g");
+  JPSIMODEL::SetModel();  
   //-----------------------------------------------------------------------------------------------------------
   // Setting constraints
   //-----------------------------------------------------------------------------------------------------------
@@ -139,7 +139,10 @@ int main(int argc, char *argv[])
   if(processID==1)
     // minimum and maximum scattered electron energy for electroproduction
     {
-      GENERATE::perange[0] = std::max(0.0,beamE-kmax);
+      if(beamE-kmax<0)
+	GENERATE::perange[0] = 0;
+      else
+	GENERATE::perange[0] = beamE-kmax;
       GENERATE::perange[1] = beamE-kmin;
     }
   //-----------------------------------------------------------------------------------------------------------
@@ -147,15 +150,23 @@ int main(int argc, char *argv[])
   //-----------------------------------------------------------------------------------------------------------
   // t->Branch("event", &myEvent.x,
   //	       "x/D:y/D:Q2/D:W/D:W2/D:t/D:x_true/D:y_true/D:Q2_true/D:W_true/D:W2_true/D:t_true/D:tmin/D:tmax/D");
+  t->Branch("eOut","TLorentzVector",&kf[0]);
+  t->Branch("dOut","TLorentzVector",&kf[1]);
+  t->Branch("ePlusOut","TLorentzVector",&kf[3]);
+  t->Branch("eMinusOut","TLorentzVector",&kf[2]);
+  t->Branch("gamma","TLorentzVector",&q);
   t->Branch("weight",&weight,"Double/D");
   //-----------------------------------------------------------------------------------------------------------
   // Event Generation
   //-----------------------------------------------------------------------------------------------------------
   for(int i = 0 ; i < events ; i++)
     {
+      if(i%(events/100)==0)
+	std::cout << "Finished " << i << " of " << events << " : (" << i/(events/100) << "% remaining)" << std::endl;
       if(processID==0)
 	{
 	  TLorentzVector eIn = ki[0];
+	  GENERATE::SetBremsstrahlung();
 	  weight = GENERATE::BremsstrahlungPhoton(&ki[0], kmin, kmax, beamE) * 1.95 / 2;//15cm LD2 target
 	  weight *= GENERATE::Event_gD2Dee_Jpsi(ki, kf);
 	  q=ki[0];

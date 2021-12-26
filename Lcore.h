@@ -4,6 +4,7 @@
 #include <iostream>
 #include <fstream>
 #include <cmath>
+#include <limits>
 
 #include "TROOT.h"
 #include "TStyle.h"
@@ -46,86 +47,32 @@ const double Mp =  2.014101778 * 0.9315; // *** REMEMBER Mp --> Mdeuteron *** //
 
 namespace JPSIMODEL{//Model of J/psi production
 
-  double (*dSigmaJpsi)(const double, const double);
-  
-  double dSigmaJpsi_2g(const double x, const double t){//Brodsky et al. PLB498 (2001) 23-28
-    double N2g = 7.5671e3;
-    double v = 1.0 / (16.0 * M_PI);
-    double R = 1.0;
-    double M = 3.0969;//GeV
-    double result = N2g * v * pow(1.0 - x, 2) * exp(1.13 * t) / pow(R * M, 2);//nb GeV^-2
-    return result;
+  int E[] = {6,7,8,9,10,12,14,16,18};
+  TGraph2D *tg = new TGraph2D(16*9);
+
+  double dSigmaJpsi(const double beamE, const double t)
+  {
+    cout << beamE << " " << abs(t) << " " << tg->Interpolate(beamE,abs(t)) << endl; 
+    return tg->Interpolate(beamE,abs(t));
   }
-
-  double dSigmaJpsi_23g(const double x, const double t){//Brodsky et al. PLB498 (2001) 23-28
-    double N2g = 6.499e3;
-    double N3g = 2.894e3;
-    double v = 1.0 / (16.0 * M_PI);
-    double R = 1.0;
-    double M = 3.0969;//GeV
-    double result = N2g * v * pow(1.0 - x, 2) * exp(1.13 * t) / (R * R * M * M) + N3g * v * exp(1.13 * t) / pow(R * M, 4);//nb GeV^-2
-    return result;
-  }
-
-
-  int SetModel(const char * model = "2g"){
-    if (strcmp(model, "2g") == 0)
-      dSigmaJpsi = &dSigmaJpsi_2g;
-    else if (strcmp(model, "23g") == 0)
-      dSigmaJpsi = &dSigmaJpsi_23g;
-    else {
-      cout << "No matching model! Set to 2g model!" << endl;
-      dSigmaJpsi = dSigmaJpsi_2g;
-    }
-    return 0;
-  }
-}
-namespace JPSIPomLQCD{//Pomeron-LQCD model of J/psi production from the proton
-
-  double cth[142];
-  double ds[21][142];
-  double W[21];
-  ROOT::Math::Interpolator * dsigma[21];
-
-  double dSigmaJpsi(const double W0, const double cth){
-    int idx = (int) floor((W0 - 4.036) / 0.05);
-    if (idx < 0) return 0;
-    if (idx < 21){
-      double ds1 = dsigma[idx]->Eval(cth);
-      double ds2 = dsigma[idx+1]->Eval(cth);
-      double res = ds1 + (ds2 - ds1) * (W0 - W[idx]) / 0.05;
-      return res * 1.0e-7 / pow(0.197327, 2);//in unit GeV^-2
-    }
-    if (idx >= 21){
-      return dsigma[21]->Eval(cth) * 1.0e-7 / pow(0.197327, 2);
-    }
-    return 0;
-  }       
 
   int SetModel(){
-    ifstream infile("harrymodel/pomeron-lqcd/diff.dat");
-    char tmp[100];
-    infile.getline(tmp, 100);
-    double dum, th;
-    cth[0] = -1.0;
-    cth[141] = 1.0;
-    for (int i = 0; i < 21; i++){
-      for (int j = 140; j >= 1; j--){
-	infile >> dum >> th >> ds[i][j];
-	cth[j] = cos(th * M_PI / 180.0);
+    for(int i = 0 ; i < 9 ; i++)
+      {
+	ifstream infile(Form("tables/relwf/dsdt-v18-fold-rel-%dgev.out",E[i])); 
+	char tmp[100];
+	infile.getline(tmp,100);
+	double beamE, t, tmtmin, dsdt;
+	for(int j = 0*i ; j < 16*i ; j++)
+	  {
+	    infile >> beamE >> t >> tmtmin >> dsdt;
+	    tg->SetPoint(j,beamE,t,dsdt);
+	    if(infile.eof())
+	      break;
+	  }
       }
-      W[i] = dum;
-      ds[i][0] = ds[i][1];
-      ds[i][141] = ds[i][140];
-    }
-    infile.close();
-    for (int i = 0; i < 21; i++){
-      dsigma[i] = new ROOT::Math::Interpolator(142, ROOT::Math::Interpolation::kCSPLINE);
-      dsigma[i]->SetData(142, cth, ds[i]);
-    }
     return 0;
   }
-
 }
 
 namespace GENERATE{
@@ -210,11 +157,13 @@ namespace GENERATE{
   double JpsiPhotoproduction(const TLorentzVector * ki, TLorentzVector * kf){
     //ki: gamma, N; kf: Jpsi, N'
     TLorentzVector Pout = ki[0] + ki[1];//Total
+    //    ki[0].Print();
     double W = Pout.M();
     double MJpsi = PARTICLE::Jpsi.RandomM();
+    cout << "W = " << W << endl;
     if (W < MJpsi + Mp)
       {
-	fail++;
+	//	cout << "W < " << endl;
 	return 0;//below the threshold
       }
     double mass[2] = {MJpsi, Mp};
@@ -229,7 +178,7 @@ namespace GENERATE{
     double volume = 4.0 * M_PI;
     double Jac = 2.0 * k * q / (2.0 * M_PI);
     double flux = sqrt(pow(ki[0] * ki[1], 2) - (ki[0] * ki[0]) * (ki[1] * ki[1])) / (Mp * ki[0].P());
-    WEIGHT_DODT = JPSIMODEL::dSigmaJpsi(x,t);
+    WEIGHT_DODT = JPSIMODEL::dSigmaJpsi(ki[0].E(),t);
     WEIGHT_JACOBIAN = Jac * volume;
     WEIGHT_NUCLEON_FLUX = flux;
     double weight = WEIGHT_DODT * WEIGHT_JACOBIAN * WEIGHT_NUCLEON_FLUX;
@@ -239,9 +188,9 @@ namespace GENERATE{
   double JpsiElectroproduction(const TLorentzVector * ki, TLorentzVector * kf){
     //ki: e, N; kf: e', Jpsi, N'
     double weight1 = VirtualPhoton(ki, kf);//Generate scattered electron
-    if (weight1 == 0) return 0;
     TLorentzVector ki2[2] = {kf[1], ki[1]};//Initial state: virtual photon N
     double weight2 = JpsiPhotoproduction(ki2, &kf[1]);//Generate Jpsi N' from virtual photon production
+    if (weight1 == 0) {return 0;}
     return weight1 * weight2;
   }
 
@@ -249,6 +198,10 @@ namespace GENERATE{
     //ki: gamma, N; kf: <EMPTY> , N', [e+, e-]
     TLorentzVector kf1[2];//Jpsi, N'
     double weight = JpsiPhotoproduction(ki, kf1);
+    if(weight==0)
+      {
+	return 0;
+      }
     kf[1] = kf1[1];//N'
     double mass[2] = {PARTICLE::e.M(), PARTICLE::e.M()};
     GenPhase.SetDecay(kf1[0], 2, mass);
@@ -271,6 +224,11 @@ namespace GENERATE{
     //ki: e, N; kf: e', N', [e+, e-]
     TLorentzVector kf1[3];//e', Jpsi, N'
     double weight = JpsiElectroproduction(ki, kf1);
+    //    cout << weight << " " << (ki[1]-kf1[2])*(ki[1]-kf1[2]) << " " << (ki[0]-kf1[0]).E() << " " << ki[1].M() << " " << kf1[2].M() << endl;
+    if(weight==0)
+      {
+	//	return 0;
+      }
     kf[0] = kf1[0];//e'
     kf[1] = kf1[2];//N'
     double mass[2] = {PARTICLE::e.M(), PARTICLE::e.M()};
@@ -286,12 +244,14 @@ namespace GENERATE{
     double y = (ki[0].E() - kf[0].E()) / ki[0].E();
     double Q2 = - (ki[0] - kf[0]) * (ki[0] - kf[0]);
     double gy = sqrt(Q2) / ki[0].E();
-    double epsilon = (1.0 - y - 0.24 * gy * gy) / (1.0 - y + 0.5 * y * y + 0.25 * gy * gy);
+    double epsilon = (1.0 - y - 0.25 * gy * gy) / (1.0 - y + 0.5 * y * y + 0.25 * gy * gy);
     double R = pow(1.0 + Q2 / 2.164 / pow(Mj,2), 2.131) - 1.0;
     double r = epsilon * R / (1.0 + epsilon * R);
     double wth = 3.0 / 4.0 * (1.0 + r + (1.0 - 3.0 * r) * pow(cth,2));
     double branch = 5.971e-2;//Branch ratio to e+e- (J/Psi)
     WEIGHT_DECAY = wth * branch;
+    //    cout << Ep << " " << cth << " " << Mj << " " << kf[2] * kf[1] << " " << p * l << " " << endl;
+    //    cout << WEIGHT_JACOBIAN << " " << WEIGHT_NUCLEON_FLUX << " " << WEIGHT_PHOTON_FLUX << " " << WEIGHT_DODT << " " << WEIGHT_DECAY << endl;
     return weight * wth * branch;
   }
 }
